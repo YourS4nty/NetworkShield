@@ -5,16 +5,22 @@ import com.comphenix.protocol.ProtocolLibrary;
 import com.comphenix.protocol.ProtocolManager;
 import com.comphenix.protocol.events.*;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.inventory.InventoryType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-public final class NetworkSlotsShield extends JavaPlugin {
+public final class NetworkSlotsShield extends JavaPlugin implements Listener {
 
     private boolean protectionEnabled = true;
     private boolean debugEnabled = true;
@@ -23,6 +29,8 @@ public final class NetworkSlotsShield extends JavaPlugin {
     private final Map<String, Long> lastLogTime = new HashMap<>();
     private final Map<UUID, Long> lastSlotPacket = new ConcurrentHashMap<>();
 
+    private final Set<UUID> recentlyTeleported = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
     private final Set<PacketType> filteredTypes = new HashSet<>(Arrays.asList(
             PacketType.Play.Server.SET_SLOT,
             PacketType.Play.Server.WINDOW_ITEMS
@@ -30,10 +38,12 @@ public final class NetworkSlotsShield extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        logDecorated("NetworkSlotsShield ENABLED", "@YourS4nty");
+        printStartupBanner();
+        Bukkit.getPluginManager().registerEvents(this, this);
 
         ProtocolManager manager = ProtocolLibrary.getProtocolManager();
 
+        // Listen to filtered packet types
         for (PacketType type : filteredTypes) {
             manager.addPacketListener(new PacketAdapter(this, ListenerPriority.HIGHEST, type) {
                 @Override
@@ -45,36 +55,57 @@ public final class NetworkSlotsShield extends JavaPlugin {
                         UUID uuid = player.getUniqueId();
                         PacketContainer packet = event.getPacket();
 
+                        // Allow packets right after teleport or inventory open
+                        if (recentlyTeleported.contains(uuid)) return;
+
                         long now = System.currentTimeMillis();
                         long last = lastSlotPacket.getOrDefault(uuid, 0L);
                         if (now - last < 150) {
-                            log(player.getName(), "[DEBUG] Slot packet flood blocked for " + player.getName());
+                            log(player.getName(), "§e[DEBUG] §cSlot packet flood blocked for §6" + player.getName());
                             event.setCancelled(true);
                             return;
                         }
                         lastSlotPacket.put(uuid, now);
 
+                        // Filter SET_SLOT packets
                         if (type == PacketType.Play.Server.SET_SLOT) {
                             Integer slot = packet.getIntegers().readSafely(1);
-                            if (slot != null && slot >= 46) {
-                                log(player.getName(), "[DEBUG] Blocked SET_SLOT packet with slot " + slot + " for " + player.getName());
+                            ItemStack item = packet.getItemModifier().readSafely(0);
+
+                            if (slot != null) {
+                                int invSize = player.getOpenInventory().getTopInventory().getSize();
+                                InventoryType invType = player.getOpenInventory().getTopInventory().getType();
+                                int maxAllowed = invSize + 36;
+
+                                if (
+                                    slot < maxAllowed ||
+                                    item == null ||
+                                    item.getType() == Material.AIR ||
+                                    invType != InventoryType.CHEST
+                                ) {
+                                    if (debugEnabled) {
+                                        log(player.getName(), "§e[DEBUG] §aAllowed SET_SLOT §7slot=" + slot + " (safe)");
+                                    }
+                                    return;
+                                }
+
+                                log(player.getName(), "§e[DEBUG] §cBlocked SET_SLOT: §7slot " + slot + " > max " + maxAllowed);
                                 event.setCancelled(true);
                                 return;
-                            } else if (debugEnabled) {
-                                log(player.getName(), "[DEBUG] Valid SET_SLOT (" + slot + ") sent to " + player.getName());
                             }
                         }
 
+                        // Filter abnormal WINDOW_ITEMS packets
                         if (type == PacketType.Play.Server.WINDOW_ITEMS) {
                             List<ItemStack> items = packet.getItemListModifier().readSafely(0);
-                            if (items == null || items.size() > 100) {
-                                log(player.getName(), "[DEBUG] Blocked abnormal WINDOW_ITEMS for " + player.getName() + " (size=" + (items != null ? items.size() : "null") + ")");
+                            if (items == null || items.size() > 150) {
+                                log(player.getName(), "§e[DEBUG] §cBlocked abnormal WINDOW_ITEMS for §6" + player.getName() + " §7(size=" + (items != null ? items.size() : "null") + ")");
                                 event.setCancelled(true);
                             }
                         }
 
                     } catch (Exception ex) {
-                        log("global", "[template] Packet analysis error: " + ex.getClass().getSimpleName() + " -> " + ex.getMessage());
+                        log("global", "§c[ERROR] §7Packet analysis exception: §e" + ex.getClass().getSimpleName() + " -> " + ex.getMessage());
                     }
                 }
             });
@@ -83,9 +114,36 @@ public final class NetworkSlotsShield extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        logDecorated("NetworkSlotsShield DISABLED", "@YourS4nty");
+        printShutdownBanner();
     }
 
+    // Temporary packet allowance after world change
+    @EventHandler
+    public void onWorldChange(PlayerChangedWorldEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        recentlyTeleported.add(uuid);
+
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            recentlyTeleported.remove(uuid);
+            if (debugEnabled) log(player.getName(), "§e[DEBUG] §7Protection re-enabled after world change.");
+        }, 20L); // 1 second
+    }
+
+    // Temporary packet allowance after inventory open
+    @EventHandler
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        Player player = (Player) event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        recentlyTeleported.add(uuid);
+
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            recentlyTeleported.remove(uuid);
+            if (debugEnabled) log(player.getName(), "§e[DEBUG] §7Packet filter re-enabled after inventory open.");
+        }, 20L);
+    }
+
+    // Logging system with throttling and formatting
     private void log(String key, String message) {
         String logKey = key + ":" + message;
         long now = System.currentTimeMillis();
@@ -95,31 +153,47 @@ public final class NetworkSlotsShield extends JavaPlugin {
             messageCount.put(logKey, count + 1);
         } else {
             if (count > 1) {
-                Bukkit.getLogger().warning("[NetworkShield] " + message + " (x" + count + ")");
+                Bukkit.getLogger().warning("§6[NetworkShield] " + message + " §7(x" + count + ")");
             } else if (message.contains("Blocked")) {
-                Bukkit.getLogger().warning("[NetworkShield] " + message);
+                Bukkit.getLogger().warning("§6[NetworkShield] " + message);
             } else if (debugEnabled) {
-                Bukkit.getLogger().info("[NetworkShield] " + message);
+                Bukkit.getLogger().info("§7[NetworkShield] " + message);
             }
             messageCount.put(logKey, 1);
             lastLogTime.put(logKey, now);
         }
     }
 
-    private void logDecorated(String status, String author) {
-        String line = "§8§m----------------------------------------------------";
-        Bukkit.getConsoleSender().sendMessage("");
-        Bukkit.getConsoleSender().sendMessage(line);
-        Bukkit.getConsoleSender().sendMessage("§6§lNetworkSlotsShield §7» §a" + status);
-        Bukkit.getConsoleSender().sendMessage("§7Developed by §e" + author);
-        Bukkit.getConsoleSender().sendMessage(line);
-        Bukkit.getConsoleSender().sendMessage("");
+    // Prints startup info with decoration
+    private void printStartupBanner() {
+        Bukkit.getConsoleSender().sendMessage("§6");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §m--------------------------------------------------");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §a+==========================+");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §a|   §eNetworkSlotsShield   §a|");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §a|--------------------------|");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §a|     §fProtocol Filter     §a|");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §a+==========================+");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §m--------------------------------------------------");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r §7Version: §f1.0");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r §7Author: §bYourS4nty");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r §7GitHub: §9https://github.com/YourS4nty/NetworkShield");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §m--------------------------------------------------");
+        Bukkit.getConsoleSender().sendMessage(" ");
     }
 
+    private void printShutdownBanner() {
+        Bukkit.getConsoleSender().sendMessage("§c");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §m--------------------------------------------------");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §cPlugin disabled.");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §r   §7Thanks for using §eNetworkSlotsShield§7!");
+        Bukkit.getConsoleSender().sendMessage("§6[NetworkSlotsShield] §m--------------------------------------------------");
+    }
+
+    // Command handler to toggle protection or debug
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("networkshield.toggle")) {
-            sender.sendMessage("§cYou don't have permission.");
+            sender.sendMessage("§cYou don't have permission to use this command.");
             return true;
         }
 
@@ -130,17 +204,17 @@ public final class NetworkSlotsShield extends JavaPlugin {
 
         if (args[0].equalsIgnoreCase("true")) {
             protectionEnabled = true;
-            sender.sendMessage("§aNetworkSlotsShield §7protection enabled.");
+            sender.sendMessage("§aNetworkSlotsShield §7protection §aenabled§7.");
         } else if (args[0].equalsIgnoreCase("false")) {
             protectionEnabled = false;
-            sender.sendMessage("§cNetworkSlotsShield §7protection disabled.");
+            sender.sendMessage("§cNetworkSlotsShield §7protection §cdisabled§7.");
         } else if (args[0].equalsIgnoreCase("debug") && args.length == 2) {
             if (args[1].equalsIgnoreCase("true")) {
                 debugEnabled = true;
-                sender.sendMessage("§aDebug mode §7enabled.");
+                sender.sendMessage("§aDebug mode §7is now §aenabled§7.");
             } else if (args[1].equalsIgnoreCase("false")) {
                 debugEnabled = false;
-                sender.sendMessage("§cDebug mode §7disabled.");
+                sender.sendMessage("§cDebug mode §7is now §cdisabled§7.");
             } else {
                 sender.sendMessage("§eUsage: /networkshield debug <true|false>");
             }
