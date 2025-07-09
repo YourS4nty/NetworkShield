@@ -1,7 +1,8 @@
-
 # 🛡️ NetworkSlotsShield
 
 **NetworkSlotsShield** is a lightweight and highly focused Spigot plugin that protects Minecraft clients from invalid or malicious inventory-related packets (such as `SET_SLOT` and `WINDOW_ITEMS`) that may crash or destabilize the client.
+
+🔗 **Now available on Spigot:** [NetworkSlotsShield @ SpigotMC](https://www.spigotmc.org/resources/networkslotsshield.126797/)
 
 Built with `ProtocolLib`, this plugin acts as a shield against corrupted slot packets and spam, especially useful when dealing with Bedrock clients (via Geyser) or poorly written server-side code.
 
@@ -58,37 +59,35 @@ Built with `ProtocolLib`, this plugin acts as a shield against corrupted slot pa
 [NetworkShield] [DEBUG] Blocked SET_SLOT packet with slot 47 for YourS4nty
 [NetworkShield] [DEBUG] Blocked abnormal WINDOW_ITEMS for Player123 (size=145)
 [NetworkShield] [DEBUG] Slot packet flood blocked for PlayerXYZ (x6)
+````
 
-```
-
-----------
+---
 
 ## 👨‍💻 Developers
 
 The plugin is fully open-source. Feel free to contribute, fork or submit PRs!
 
--   Clean code written in modern Java
-    
--   Fully commented
-    
--   Maven-compatible (`pom.xml` included)
-    
+* Clean code written in modern Java
+* Fully commented
+* Maven-compatible (`pom.xml` included)
 
-----------
+---
 
 ## 📚 License
 
 This project is licensed under the MIT License.
 
-----------
+---
 
 ## 💡 Credits
 
--   Created with ❤️ by [@YourS4nty](https://github.com/YourS4nty)
-    
--   Powered by [ProtocolLib](https://github.com/dmulloy2/ProtocolLib)
-    
+* Created with ❤️ by [@YourS4nty](https://github.com/YourS4nty)
+* Powered by [ProtocolLib](https://github.com/dmulloy2/ProtocolLib)
+
+---
 
 ## 📞 Need help?
 
-Feel free to open an issue or contact me directly for support!
+Feel free to open an issue or contact me directly for support.
+
+---
