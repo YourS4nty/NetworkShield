@@ -3,7 +3,6 @@
 **NetworkSlotsShield** is a lightweight and highly focused Spigot plugin that protects Minecraft clients from malicious or invalid inventory-related packets — particularly `SET_SLOT` and `WINDOW_ITEMS` — that can cause visual glitches or client crashes.
 
 🔗 **Now available on Spigot:** [NetworkSlotsShield @ SpigotMC](https://www.spigotmc.org/resources/networkslotsshield.126797/)  
-📦 **Source code:** [GitHub Repository](https://github.com/YourS4nty/NetworkShield)
 
 Built with [ProtocolLib](https://www.spigotmc.org/resources/protocollib.1997/), this plugin acts as a **packet-level shield**, protecting players from harmful or spammy inventory actions — while remaining invisible to gameplay and compatible with most custom GUIs.
 
